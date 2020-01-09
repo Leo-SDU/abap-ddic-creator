@@ -60,26 +60,28 @@ SELECTION-SCREEN FUNCTION KEY 4.
 
 TYPES:
   BEGIN OF typ_field,
-    fieldname TYPE fieldname,
-    rollname  TYPE rollname,
-    create    TYPE c,  "IF NEED TO CREATE
-    domname   TYPE domname,
-    datatype  TYPE datatype_d,
-    leng      TYPE ddleng,
-    decimals  TYPE decimals,
-    ddtext    TYPE as4text,
-    result    TYPE string,
+    fieldname   TYPE fieldname,
+    rollname    TYPE rollname,
+    create      TYPE c,  "IF NEED TO CREATE
+    domname     TYPE domname,
+    datatype    TYPE datatype_d,
+    leng        TYPE ddleng,
+    decimals    TYPE decimals,
+    ddtext      TYPE as4text,
+    result      TYPE string,
+    t_cellcolor TYPE lvc_t_scol,
   END OF typ_field,
 
   BEGIN OF typ_doma,
-    domname   TYPE domname,
-    datatype  TYPE datatype_d,
-    leng      TYPE ddleng,
-    decimals  TYPE decimals,
-    lowercase TYPE lowercase,
-    signflag  TYPE signflag,
-    ddtext    TYPE as4text,
-    result    TYPE string,
+    domname     TYPE domname,
+    datatype    TYPE datatype_d,
+    leng        TYPE ddleng,
+    decimals    TYPE decimals,
+    lowercase   TYPE lowercase,
+    signflag    TYPE signflag,
+    ddtext      TYPE as4text,
+    result      TYPE string,
+    t_cellcolor TYPE lvc_t_scol,
   END OF typ_doma.
 
 DATA:
@@ -109,7 +111,9 @@ DATA:
   gs_layout         TYPE lvc_s_layo.
 
 DATA:
-  g_typekind        TYPE ddtypekind.
+  g_typekind       TYPE ddtypekind,
+  g_count          TYPE string,
+  g_statusbar_text TYPE string.
 
 DATA:
   g_ucomm   TYPE sy-ucomm,
@@ -127,13 +131,13 @@ DEFINE d_build_fieldcat_field.
   gs_fieldcat_field-ref_table  = &6.
   gs_fieldcat_field-ref_field  = &7.
   gs_fieldcat_field-coltext    = &8.
-  append gs_fieldcat_field to gt_fieldcat_field.
-  if gs_fieldcat_field-f4availabl = 'X'.
+  APPEND gs_fieldcat_field TO gt_fieldcat_field.
+  IF gs_fieldcat_field-f4availabl = 'X'.
     gs_f4-fieldname = &1.
     gs_f4-register = 'X'.
-    append gs_f4 to gt_f4_field.
-  endif.
-  clear gs_fieldcat_field.
+    APPEND gs_f4 TO gt_f4_field.
+  ENDIF.
+  CLEAR gs_fieldcat_field.
 END-OF-DEFINITION.
 
 DEFINE d_build_fieldcat_doma.
@@ -145,19 +149,29 @@ DEFINE d_build_fieldcat_doma.
   gs_fieldcat_doma-ref_table  = &6.
   gs_fieldcat_doma-ref_field  = &7.
   gs_fieldcat_doma-coltext    = &8.
-  append gs_fieldcat_doma to gt_fieldcat_doma.
-  if gs_fieldcat_doma-f4availabl = 'X'.
+  APPEND gs_fieldcat_doma TO gt_fieldcat_doma.
+  IF gs_fieldcat_doma-f4availabl = 'X'.
     gs_f4-fieldname = &1.
     gs_f4-register = 'X'.
-    append gs_f4 to gt_f4_doma.
-  endif.
-  clear gs_fieldcat_doma.
+    APPEND gs_f4 TO gt_f4_doma.
+  ENDIF.
+  CLEAR gs_fieldcat_doma.
 END-OF-DEFINITION.
 
 DEFINE show_error_message.
-  message &1 type 'S' display like 'E'.
+  MESSAGE &1 TYPE 'S' DISPLAY LIKE 'E'.
   g_error = 'X'.
-  return.
+  RETURN.
+END-OF-DEFINITION.
+
+DEFINE set_status_bar.
+  ADD 1 TO g_count.
+  CONDENSE g_count NO-GAPS.
+  CONCATENATE '正在创建：' g_count '.' &1 INTO g_statusbar_text.
+  CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+    EXPORTING
+      percentage       = 0
+      text             = g_statusbar_text.
 END-OF-DEFINITION.
 
 INITIALIZATION.
@@ -170,7 +184,7 @@ INITIALIZATION.
   text1 = '开发类'.
   text2 = '请求号'.
   tmp = '本地对象'.
-  cmt2 = '有BUG请反馈至微信/QQ：286503700。  更多精彩请关注微信公众号：SAP亮亮'.
+  cmt2 = '有BUG请反馈至：微信/QQ:286503700 / QQ群:775662808。更多精彩请关注微信公众号：SAP亮亮'.
 
 AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_trkorr.
   PERFORM f4_trkorr.
@@ -316,7 +330,7 @@ FORM selection_screen_pbo_9400.
   WRITE: '微信公众号：SAP亮亮'.
   ULINE.
   WRITE: '此工具难免有BUG或其他疏漏，本人对因使用此工具造成的任何不良后果不承担任何责任！', /.
-  WRITE: '发现BUG请反馈至微信/QQ:286503700！', /.
+  WRITE: '发现BUG请反馈至：微信/QQ:286503700 / QQ群:775662808！', /.
   WRITE: '未经本人许可，请勿用于任何商业用途！'.
   LEAVE SCREEN.
 ENDFORM.                    "selection_screen_pbo_9400
@@ -394,6 +408,8 @@ ENDFORM.                    "selection_screen_pai_9200
 *&      Form  selection_screen_pai_9300
 *&---------------------------------------------------------------------*
 FORM selection_screen_pai_9300.
+  DATA: l_objname TYPE rsedd0-ddobjname.
+
   g_ucomm = sscrfields-ucomm.
   CLEAR sscrfields-ucomm.
   IF g_ucomm = 'GOON'.
@@ -408,6 +424,21 @@ FORM selection_screen_pai_9300.
         IF sy-subrc = 0.
           MESSAGE e001(00) WITH p_tabnam '已被定义为类型' g_typekind.
         ENDIF.
+
+        l_objname = p_tabnam.
+        CALL FUNCTION 'INTERN_CHECK_ADD_NAME'
+          EXPORTING
+            objname      = l_objname
+            eutype       = 'T'
+            tadir_type   = 'TABL'
+            class_id     = 'TRANSP'
+          EXCEPTIONS
+            invalid_name = 1
+            OTHERS       = 2.
+        IF sy-subrc <> 0.
+          MESSAGE ID sy-msgid TYPE 'E' NUMBER sy-msgno WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+        ENDIF.
+
         g_9300_ok = 'X'.
         LEAVE TO SCREEN 0.
       ENDIF.
@@ -669,7 +700,7 @@ ENDFORM.                    "add_button_to_toolbar
 FORM handle_user_command_field  USING    e_ucomm TYPE sy-ucomm.
   DATA: ok_code TYPE sy-ucomm,
         ls_doma TYPE typ_doma,
-        l_flag TYPE c.
+        l_flag  TYPE c.
   FIELD-SYMBOLS: <ls_field> TYPE typ_field.
 
   ok_code = e_ucomm.
@@ -772,7 +803,7 @@ FORM handle_double_click_field USING  e_row TYPE lvc_s_row
                                       e_column TYPE lvc_s_col
                                       es_row_no TYPE lvc_s_roid.
   DATA: l_rollname TYPE dd04l-rollname,
-        l_answer TYPE c.
+        l_answer   TYPE c.
   FIELD-SYMBOLS: <ls_field> TYPE typ_field.
 
   IF e_row-index IS INITIAL.
@@ -849,7 +880,7 @@ FORM handle_double_click_doma USING  e_row TYPE lvc_s_row
       not_executed        = 1
       invalid_object_type = 2
       OTHERS              = 3.
-ENDFORM.                    "HANDLE_BEFORE_UCOMM
+ENDFORM.                    "HANDLE_DOUBLE_CLICK_DOMA
 *&---------------------------------------------------------------------*
 *&      FORM  HANDLE_F4
 *&---------------------------------------------------------------------*
@@ -924,6 +955,7 @@ ENDFORM.                    "ALV_PREPARE_TOOLBAR
 FORM alv_prepare_layout  CHANGING ps_layout TYPE lvc_s_layo.
   ps_layout-sel_mode = 'A'.
   ps_layout-smalltitle = 'X'.
+  ps_layout-ctab_fname = 'T_CELLCOLOR'.
 ENDFORM.                    "ALV_PREPARE_LAYOUT
 *&---------------------------------------------------------------------*
 *&      FORM  F4_DATATYPE
@@ -1073,8 +1105,11 @@ FORM check_field.
     ENDIF.
   ENDLOOP.
 
+  "比较数据元素的信息与表格中的设置是否一致
+  PERFORM compare_dtel_info.
+
+  go_alv_field->refresh_table_display( ).
   IF l_flag_all = 'X'.
-    go_alv_field->refresh_table_display( ).
     show_error_message '数据元素设置错误'.
   ENDIF.
 
@@ -1088,6 +1123,49 @@ FORM check_field.
     show_error_message '数据元素存在重复'.
   ENDIF.
 ENDFORM.                    " CHECK_FIELD
+*&---------------------------------------------------------------------*
+*&      FORM  compare_dtel_info
+*&---------------------------------------------------------------------*
+FORM compare_dtel_info.
+  FIELD-SYMBOLS: <ls_field> TYPE typ_field.
+  DATA: l_flag      TYPE c,
+        ls_dd04l    TYPE dd04l,
+        ls_celcolor TYPE lvc_s_scol.
+
+  DEFINE field_set_cell_color.
+    l_flag = 'X'.
+    ls_celcolor-fname = &1.
+    ls_celcolor-color-col = 3.
+    ls_celcolor-color-int = 1.
+    APPEND ls_celcolor TO <ls_field>-t_cellcolor.
+  END-OF-DEFINITION.
+
+  LOOP AT gt_fields ASSIGNING <ls_field>.
+    CLEAR <ls_field>-t_cellcolor.
+
+    CHECK <ls_field>-rollname <> ''.
+
+    SELECT SINGLE * INTO ls_dd04l
+      FROM dd04l
+      WHERE rollname = <ls_field>-rollname.
+
+    CHECK sy-subrc = 0.
+
+    IF ls_dd04l-datatype <> <ls_field>-datatype.
+      field_set_cell_color: 'DATATYPE'.
+    ENDIF.
+    IF ls_dd04l-leng <> <ls_field>-leng.
+      field_set_cell_color: 'LENG'.
+    ENDIF.
+    IF ls_dd04l-decimals <> <ls_field>-decimals.
+      field_set_cell_color: 'DECIMALS'.
+    ENDIF.
+  ENDLOOP.
+
+  IF l_flag = 'X'.
+    MESSAGE '部分字段的类型、长度、小数位与数据元素的设置不一致，将用“黄色”区分显示' TYPE 'I'.
+  ENDIF.
+ENDFORM.
 *&---------------------------------------------------------------------*
 *&      FORM  CHECK_DOMA
 *&---------------------------------------------------------------------*
@@ -1130,11 +1208,11 @@ FORM check_doma.
       <ls_doma>-result = '域名称类型未指定'.
       l_flag_line = l_flag_all = 'X'.
     ENDIF.
-
   ENDLOOP.
 
+  go_alv_doma->refresh_table_display( ).
+
   IF l_flag_all = 'X'.
-    go_alv_doma->refresh_table_display( ).
     show_error_message '域名称设置错误'.
   ENDIF.
 
@@ -1174,7 +1252,9 @@ FORM create_dtel .
     RETURN.
   ENDIF.
 
+  CLEAR g_count.
   LOOP AT gt_fields ASSIGNING <ls_field> WHERE create = 'X'.
+    set_status_bar: <ls_field>-rollname.
     ls_object-objtype = 'DTEL'.
     ls_object-objname = <ls_field>-rollname.
 
@@ -1186,14 +1266,14 @@ FORM create_dtel .
 
     MOVE-CORRESPONDING <ls_field> TO ls_dd04v.
     ls_dd04v-ddlanguage = sy-langu.
-    ls_dd04v-headlen = 10.
+    ls_dd04v-headlen = 30.
     ls_dd04v-scrlen1 = 10.
     ls_dd04v-scrlen2 = 20.
     ls_dd04v-scrlen3 = 30.
-    ls_dd04v-reptext = <ls_field>-ddtext.
-    ls_dd04v-scrtext_s = <ls_field>-ddtext.
-    ls_dd04v-scrtext_m = <ls_field>-ddtext.
-    ls_dd04v-scrtext_l = <ls_field>-ddtext.
+    ls_dd04v-reptext = <ls_field>-ddtext(30).
+    ls_dd04v-scrtext_s = <ls_field>-ddtext(10).
+    ls_dd04v-scrtext_m = <ls_field>-ddtext(20).
+    ls_dd04v-scrtext_l = <ls_field>-ddtext(30).
 
     CALL FUNCTION 'DDIF_DTEL_PUT'
       EXPORTING
@@ -1255,7 +1335,9 @@ FORM create_doma .
     RETURN.
   ENDIF.
 
+  CLEAR g_count.
   LOOP AT gt_domas ASSIGNING <ls_doma>.
+    set_status_bar: <ls_doma>-domname.
     ls_object-objtype = 'DOMA'.
     ls_object-objname = <ls_doma>-domname.
 
@@ -1324,15 +1406,15 @@ FORM create_tabl .
     RETURN.
   ENDIF.
 
-  p_yes = ''.
-  CALL SELECTION-SCREEN 9100 STARTING AT 20 10.
-  IF g_9100_ok = ''.
+  CALL SELECTION-SCREEN 9300 STARTING AT 20 10.
+  IF g_9300_ok = ''.
     MESSAGE '没有执行创建操作' TYPE 'S'.
     RETURN.
   ENDIF.
 
-  CALL SELECTION-SCREEN 9300 STARTING AT 20 10.
-  IF g_9300_ok = ''.
+  p_yes = ''.
+  CALL SELECTION-SCREEN 9100 STARTING AT 20 10.
+  IF g_9100_ok = ''.
     MESSAGE '没有执行创建操作' TYPE 'S'.
     RETURN.
   ENDIF.
@@ -1425,18 +1507,18 @@ FORM rs_corr_insert USING    p_type
 
   CALL FUNCTION 'RS_CORR_INSERT'
     EXPORTING
-      object                   = p_object
-      object_class             = p_type
-      mode                     = 'I'
-      global_lock              = 'X'
-      korrnum                  = p_trkorr
-      devclass                 = p_devc
+      object              = p_object
+      object_class        = p_type
+      mode                = 'I'
+      global_lock         = 'X'
+      korrnum             = p_trkorr
+      devclass            = p_devc
 *     OBJECT_CLASS_SUPPORTS_MA = ' '
     EXCEPTIONS
-      cancelled                = 1
-      permission_failure       = 2
-      unknown_objectclass      = 3
-      OTHERS                   = 4.
+      cancelled           = 1
+      permission_failure  = 2
+      unknown_objectclass = 3
+      OTHERS              = 4.
   IF sy-subrc <> 0.
     p_failed = 'X'.
     p_message = '创建失败'.
@@ -1447,7 +1529,7 @@ ENDFORM.                    "RS_CORR_INSERT
 *&---------------------------------------------------------------------*
 FORM change_prefix CHANGING p_value.
   DATA: l_prelen TYPE i,
-        l_len TYPE i.
+        l_len    TYPE i.
 
   IF p_preold = ''.
     CONCATENATE p_prefix p_value INTO p_value.
